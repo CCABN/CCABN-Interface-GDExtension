@@ -11,6 +11,7 @@ cmake-build-*/
 # IDE files
 .vscode/
 .vs/
+.idea/
 *.suo
 *.user
 *.sln.docstates
