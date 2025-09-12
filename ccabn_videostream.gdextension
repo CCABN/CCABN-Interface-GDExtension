@@ -5,9 +5,9 @@ compatibility_minimum = "4.1"
 
 [libraries]
 
-linux.debug.x86_64 = "res://bin/libccabn_videostream.so"
-linux.release.x86_64 = "res://bin/libccabn_videostream.so"
-windows.debug.x86_64 = "res://bin/ccabn_videostream.dll"
-windows.release.x86_64 = "res://bin/ccabn_videostream.dll"
-macos.debug = "res://bin/libccabn_videostream.dylib"
-macos.release = "res://bin/libccabn_videostream.dylib"
+linux.debug.x86_64 = "res://addons/ccabn_videostream/bin/libccabn_videostream.so"
+linux.release.x86_64 = "res://addons/ccabn_videostream/bin/libccabn_videostream.so"
+windows.debug.x86_64 = "res://addons/ccabn_videostream/bin/ccabn_videostream.dll"
+windows.release.x86_64 = "res://addons/ccabn_videostream/bin/ccabn_videostream.dll"
+macos.debug = "res://addons/ccabn_videostream/bin/libccabn_videostream.dylib"
+macos.release = "res://addons/ccabn_videostream/bin/libccabn_videostream.dylib"
