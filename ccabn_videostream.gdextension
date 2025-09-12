@@ -1,23 +1,13 @@
 [configuration]
 
 entry_symbol = "ccabn_videostream_library_init"
-compatibility_minimum = "4.3"
-reloadable = true
+compatibility_minimum = "4.1"
 
 [libraries]
 
-macos.debug = "res://bin/libccabn_videostream.macos.debug.universal.dylib"
-macos.release = "res://bin/libccabn_videostream.macos.release.universal.dylib"
-windows.debug.x86_64 = "res://bin/ccabn_videostream.windows.debug.x86_64.dll"
-windows.release.x86_64 = "res://bin/ccabn_videostream.windows.release.x86_64.dll"
-linux.debug.x86_64 = "res://bin/libccabn_videostream.linux.debug.x86_64.so"
-linux.release.x86_64 = "res://bin/libccabn_videostream.linux.release.x86_64.so"
-
-[dependencies]
-
-macos.debug = {}
-macos.release = {}
-windows.debug.x86_64 = {}
-windows.release.x86_64 = {}
-linux.debug.x86_64 = {}
-linux.release.x86_64 = {}
+linux.debug.x86_64 = "res://bin/libccabn_videostream.so"
+linux.release.x86_64 = "res://bin/libccabn_videostream.so"
+windows.debug.x86_64 = "res://bin/ccabn_videostream.dll"
+windows.release.x86_64 = "res://bin/ccabn_videostream.dll"
+macos.debug = "res://bin/libccabn_videostream.dylib"
+macos.release = "res://bin/libccabn_videostream.dylib"
