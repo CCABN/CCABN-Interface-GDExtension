@@ -1,6 +1,7 @@
 # Godot files
 .godot/
 *.tmp
+*.uid
 
 # Build artifacts
 bin/
