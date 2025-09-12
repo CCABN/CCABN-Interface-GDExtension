@@ -14,13 +14,13 @@ void initialize_ccabn_videostream_module(ModuleInitializationLevel p_level) {
     }
 
 #ifdef DEBUG_ENABLED
-    UtilityFunctions::print("CCABN VideoStream GDExtension: Initializing...");
+    UtilityFunctions::print("[DEBUG] CCABN VideoStream Extension: Module initializing...");
 #endif
 
     GDREGISTER_CLASS(VideoStream);
 
 #ifdef DEBUG_ENABLED
-    UtilityFunctions::print("CCABN VideoStream GDExtension: VideoStream class registered successfully!");
+    UtilityFunctions::print("[DEBUG] CCABN VideoStream Extension: VideoStream class registered successfully!");
 #endif
 }
 
@@ -33,7 +33,7 @@ void uninitialize_ccabn_videostream_module(ModuleInitializationLevel p_level) {
 extern "C" {
     GDExtensionBool GDE_EXPORT ccabn_videostream_library_init(GDExtensionInterfaceGetProcAddress p_get_proc_address, const GDExtensionClassLibraryPtr p_library, GDExtensionInitialization *r_initialization) {
 #ifdef DEBUG_ENABLED
-        UtilityFunctions::print("CCABN VideoStream GDExtension: Library loading...");
+        UtilityFunctions::print("[DEBUG] CCABN VideoStream Extension: Library loading...");
 #endif
 
         godot::GDExtensionBinding::InitObject init_obj(p_get_proc_address, p_library, r_initialization);
@@ -46,9 +46,9 @@ extern "C" {
 
 #ifdef DEBUG_ENABLED
         if (result) {
-            UtilityFunctions::print("CCABN VideoStream GDExtension: Library initialized successfully!");
+            UtilityFunctions::print("[DEBUG] CCABN VideoStream Extension: Library initialized successfully!");
         } else {
-            UtilityFunctions::print("CCABN VideoStream GDExtension: Failed to initialize library!");
+            UtilityFunctions::print("[DEBUG] CCABN VideoStream Extension: Failed to initialize library!");
         }
 #endif
 
