@@ -19,6 +19,11 @@ target_link_libraries(ccabn-videostream PRIVATE godot-cpp)
 # Include directories
 target_include_directories(ccabn-videostream PRIVATE src/)
 
+# Add debug definitions for debug builds
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_definitions(ccabn-videostream PRIVATE DEBUG_ENABLED)
+endif()
+
 # Set output directory
 set_target_properties(ccabn-videostream PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/bin"
