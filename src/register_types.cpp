@@ -1,5 +1,6 @@
 #include "register_types.h"
 #include "simple_logger.h"
+#include "video_stream_receiver.h"
 
 #include <gdextension_interface.h>
 #include <godot_cpp/core/defs.hpp>
@@ -13,6 +14,7 @@ void initialize_ccabn_videostream_module(ModuleInitializationLevel p_level) {
 	}
 
 	ClassDB::register_class<SimpleLogger>();
+	ClassDB::register_class<VideoStreamReceiver>();
 }
 
 void uninitialize_ccabn_videostream_module(ModuleInitializationLevel p_level) {

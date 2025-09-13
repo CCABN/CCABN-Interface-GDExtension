@@ -11,6 +11,7 @@ add_subdirectory(extern/godot-cpp)
 set(SOURCES
     src/register_types.cpp
     src/simple_logger.cpp
+    src/video_stream_receiver.cpp
 )
 
 # Create the shared library
