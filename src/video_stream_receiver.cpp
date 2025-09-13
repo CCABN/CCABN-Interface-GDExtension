@@ -120,7 +120,7 @@ void VideoStreamReceiver::request_frame() {
 		return;
 	}
 	
-	String url = "http://" + ip_address + ":" + String::num(port);
+	String url = "http://" + ip_address + ":" + String::num_int64(port);
 	Error err = http_request->request(url);
 	if (err != OK) {
 		update_connection_status("Connection Error");
