@@ -1,6 +1,7 @@
 #include "video_stream_receiver.h"
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
+#include <cmath>
 
 VideoStreamReceiver::VideoStreamReceiver() {
 	ip_address = "";
@@ -92,7 +93,7 @@ void VideoStreamReceiver::setup_timer() {
 	}
 	
 	request_timer = memnew(Timer);
-	request_timer->set_wait_time(0.016f); // ~60 FPS
+	request_timer->set_wait_time(0.033f); // ~30 FPS (more realistic for HTTP requests)
 	request_timer->set_autostart(false);
 	request_timer->connect("timeout", Callable(this, "_on_request_timer_timeout"));
 	add_child(request_timer);
@@ -240,26 +241,88 @@ void VideoStreamReceiver::calculate_brightness(const Ref<Image>& image) {
 	
 	PackedByteArray data = image->get_data();
 	int pixel_count = image->get_width() * image->get_height();
+	
+	// Calculate histogram and advanced statistics
+	int histogram[256] = {0};
 	long long total_brightness = 0;
 	
+	// Build histogram and calculate mean
 	for (int i = 0; i < data.size(); i += 3) {
 		int gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+		histogram[gray]++;
 		total_brightness += gray;
 	}
 	
-	float average_brightness = (float)total_brightness / (float)pixel_count;
-	float normalized = (average_brightness / 255.0f) * 2.0f - 1.0f;
+	float mean = (float)total_brightness / (float)pixel_count;
 	
-	float optimal_range = 0.3f;
-	if (normalized < -optimal_range) {
-		brightness_level = -1.0f + (normalized + optimal_range) / (1.0f - optimal_range);
-	} else if (normalized > optimal_range) {
-		brightness_level = (normalized - optimal_range) / (1.0f - optimal_range);
-	} else {
-		brightness_level = 0.0f;
+	// Calculate standard deviation for contrast measure
+	float variance = 0.0f;
+	for (int i = 0; i < data.size(); i += 3) {
+		int gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+		float diff = gray - mean;
+		variance += diff * diff;
+	}
+	float std_dev = sqrt(variance / pixel_count);
+	
+	// Find percentiles for dynamic range analysis
+	int cumulative = 0;
+	int p5 = 0, p95 = 0, p50 = 0; // 5th, 95th, and 50th percentiles
+	
+	for (int i = 0; i < 256; i++) {
+		cumulative += histogram[i];
+		if (p5 == 0 && cumulative >= pixel_count * 0.05f) p5 = i;
+		if (p50 == 0 && cumulative >= pixel_count * 0.50f) p50 = i;
+		if (p95 == 0 && cumulative >= pixel_count * 0.95f) p95 = i;
 	}
 	
-	brightness_level = CLAMP(brightness_level, -1.0f, 1.0f);
+	// Advanced brightness assessment combining multiple factors
+	float mean_norm = mean / 255.0f; // 0-1
+	float contrast_norm = std_dev / 128.0f; // Higher std_dev = more contrast
+	float dynamic_range = (p95 - p5) / 255.0f; // How much of the range is used
+	
+	// Ideal exposure has:
+	// - Mean around 0.4-0.6 (not too dark, not too bright)
+	// - Good contrast (std_dev > 30)
+	// - Good dynamic range (using most of 0-255)
+	
+	float exposure_score = 0.0f;
+	
+	// Evaluate exposure based on mean
+	if (mean_norm < 0.15f) {
+		// Very underexposed
+		exposure_score = -1.0f + (mean_norm / 0.15f) * 0.5f; // -1.0 to -0.5
+	} else if (mean_norm < 0.35f) {
+		// Slightly underexposed
+		exposure_score = -0.5f + ((mean_norm - 0.15f) / 0.20f) * 0.5f; // -0.5 to 0.0
+	} else if (mean_norm < 0.65f) {
+		// Well exposed - factor in contrast and dynamic range
+		float base_score = ((mean_norm - 0.35f) / 0.30f) * 0.4f - 0.2f; // -0.2 to 0.2
+		
+		// Boost score for good contrast
+		if (contrast_norm > 0.25f) base_score += 0.1f;
+		if (dynamic_range > 0.6f) base_score += 0.1f;
+		
+		exposure_score = base_score;
+	} else if (mean_norm < 0.85f) {
+		// Slightly overexposed
+		exposure_score = 0.0f + ((mean_norm - 0.65f) / 0.20f) * 0.5f; // 0.0 to 0.5
+	} else {
+		// Very overexposed
+		exposure_score = 0.5f + ((mean_norm - 0.85f) / 0.15f) * 0.5f; // 0.5 to 1.0
+	}
+	
+	// Penalize low contrast (flat/washed out images)
+	if (contrast_norm < 0.15f) {
+		if (exposure_score > 0) exposure_score += 0.3f; // Push toward overexposed
+		else exposure_score -= 0.3f; // Push toward underexposed
+	}
+	
+	// Penalize poor dynamic range
+	if (dynamic_range < 0.3f) {
+		exposure_score *= 1.3f; // Amplify the problem
+	}
+	
+	brightness_level = CLAMP(exposure_score, -1.0f, 1.0f);
 }
 
 void VideoStreamReceiver::update_display_texture(const Ref<Image>& image) {
