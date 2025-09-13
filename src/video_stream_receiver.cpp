@@ -83,7 +83,7 @@ void VideoStreamReceiver::setup_timer() {
 	}
 	
 	request_timer = memnew(Timer);
-	request_timer->set_wait_time(0.033f); // ~30 FPS
+	request_timer->set_wait_time(0.016f); // ~60 FPS
 	request_timer->set_autostart(false);
 	request_timer->connect("timeout", Callable(this, "_on_request_timer_timeout"));
 	add_child(request_timer);
@@ -120,18 +120,12 @@ void VideoStreamReceiver::request_frame() {
 		return;
 	}
 	
-	if (http_request->get_http_client_status() != HTTPClient::STATUS_DISCONNECTED) {
-		return;
-	}
-	
 	String url = "http://" + ip_address + ":" + String::num_int64(port);
 	Error err = http_request->request(url);
-	if (err != OK) {
-		if (err != ERR_BUSY) {
-			update_connection_status("Connection Error");
-			show_fallback_display();
-			stop_stream();
-		}
+	if (err != OK && err != ERR_BUSY) {
+		update_connection_status("Connection Error");
+		show_fallback_display();
+		stop_stream();
 	}
 }
 
@@ -190,8 +184,13 @@ void VideoStreamReceiver::parse_jpeg_frame(const PackedByteArray& jpeg_data) {
 		return;
 	}
 	
-	image->resize(240, 240, Image::INTERPOLATE_LANCZOS);
-	image->convert(Image::FORMAT_RGB8);
+	if (image->get_width() != 240 || image->get_height() != 240) {
+		image->resize(240, 240, Image::INTERPOLATE_NEAREST);
+	}
+	
+	if (image->get_format() != Image::FORMAT_RGB8) {
+		image->convert(Image::FORMAT_RGB8);
+	}
 	
 	calculate_brightness(image);
 	update_display_texture(image);
