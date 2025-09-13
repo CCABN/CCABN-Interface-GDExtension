@@ -9,7 +9,6 @@ VideoStreamReceiver::VideoStreamReceiver() {
 	connection_status = "No Address";
 	brightness_level = 0.0f;
 	is_streaming = false;
-	request_pending = false;
 	
 	http_request = nullptr;
 	texture_rect = nullptr;
@@ -19,6 +18,9 @@ VideoStreamReceiver::VideoStreamReceiver() {
 	last_frame_time = 0.0;
 	frame_count = 0;
 	fps_update_time = 0.0;
+	
+	boundary_marker = "--frameboundary";
+	found_boundary = false;
 }
 
 VideoStreamReceiver::~VideoStreamReceiver() {
@@ -37,7 +39,6 @@ void VideoStreamReceiver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("start_stream_manual"), &VideoStreamReceiver::start_stream_manual);
 	
 	ClassDB::bind_method(D_METHOD("_on_http_request_completed", "result", "response_code", "headers", "body"), &VideoStreamReceiver::_on_http_request_completed);
-	ClassDB::bind_method(D_METHOD("_on_request_timer_timeout"), &VideoStreamReceiver::_on_request_timer_timeout);
 	
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "ip_address"), "set_ip_address", "get_ip_address");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "port"), "set_port", "get_port");
@@ -49,7 +50,6 @@ void VideoStreamReceiver::_bind_methods() {
 void VideoStreamReceiver::_ready() {
 	setup_ui();
 	setup_http_request();
-	setup_timer();
 	show_fallback_display();
 	
 	// Only start streaming in runtime, not in editor
@@ -83,20 +83,14 @@ void VideoStreamReceiver::setup_http_request() {
 	}
 	
 	http_request = memnew(HTTPRequest);
+	// Set streaming mode for continuous data
+	http_request->set_download_chunk_size(8192); // Smaller chunks for faster processing
 	add_child(http_request);
 	http_request->connect("request_completed", Callable(this, "_on_http_request_completed"));
 }
 
 void VideoStreamReceiver::setup_timer() {
-	if (request_timer) {
-		request_timer->queue_free();
-	}
-	
-	request_timer = memnew(Timer);
-	request_timer->set_wait_time(0.033f); // ~30 FPS (more realistic for HTTP requests)
-	request_timer->set_autostart(false);
-	request_timer->connect("timeout", Callable(this, "_on_request_timer_timeout"));
-	add_child(request_timer);
+	// No timer needed for MJPEG streaming - data comes continuously
 }
 
 void VideoStreamReceiver::start_stream() {
@@ -114,16 +108,23 @@ void VideoStreamReceiver::start_stream() {
 	frame_count = 0;
 	current_fps = 0.0f;
 	
-	request_frame();
-	request_timer->start();
+	// Clear buffers
+	stream_buffer.clear();
+	found_boundary = false;
+	
+	// Start MJPEG stream request
+	String url = "http://" + ip_address + ":" + String::num_int64(port);
+	Error err = http_request->request(url);
+	if (err != OK) {
+		update_connection_status("Connection Error");
+		show_fallback_display();
+		stop_stream();
+	}
 }
 
 void VideoStreamReceiver::stop_stream() {
 	if (is_streaming) {
 		is_streaming = false;
-		if (request_timer) {
-			request_timer->stop();
-		}
 		if (http_request) {
 			http_request->cancel_request();
 		}
@@ -132,28 +133,14 @@ void VideoStreamReceiver::stop_stream() {
 }
 
 void VideoStreamReceiver::request_frame() {
-	if (!is_streaming || !http_request || request_pending) {
-		return;
-	}
-	
-	String url = "http://" + ip_address + ":" + String::num_int64(port);
-	Error err = http_request->request(url);
-	if (err == OK) {
-		request_pending = true;
-	} else if (err != ERR_BUSY) {
-		update_connection_status("Connection Error");
-		show_fallback_display();
-		stop_stream();
-	}
+	// Not used in MJPEG streaming - data comes continuously
 }
 
 void VideoStreamReceiver::_on_request_timer_timeout() {
-	request_frame();
+	// Not used in MJPEG streaming
 }
 
 void VideoStreamReceiver::_on_http_request_completed(int result, int response_code, const PackedStringArray& headers, const PackedByteArray& body) {
-	request_pending = false;
-	
 	if (!is_streaming) {
 		return;
 	}
@@ -170,39 +157,103 @@ void VideoStreamReceiver::_on_http_request_completed(int result, int response_co
 		return;
 	}
 	
-	bool is_jpeg = false;
+	// Check for MJPEG content type
+	bool is_mjpeg = false;
 	for (int i = 0; i < headers.size(); i++) {
 		String header = headers[i].to_lower();
-		if (header.begins_with("content-type") && header.contains("image/jpeg")) {
-			is_jpeg = true;
+		if (header.begins_with("content-type") && header.contains("multipart/x-mixed-replace")) {
+			is_mjpeg = true;
+			// Extract boundary if not found
+			if (!found_boundary) {
+				int boundary_pos = header.find("boundary=");
+				if (boundary_pos >= 0) {
+					boundary_marker = header.substr(boundary_pos + 9);
+					if (!boundary_marker.begins_with("--")) {
+						boundary_marker = "--" + boundary_marker;
+					}
+					found_boundary = true;
+				}
+			}
 			break;
 		}
 	}
 	
-	if (!is_jpeg) {
-		update_connection_status("Invalid Image Format");
+	if (!is_mjpeg) {
+		update_connection_status("Invalid Stream Format");
 		show_fallback_display();
 		return;
 	}
 	
 	update_connection_status("Connected");
-	parse_jpeg_frame(body);
 	
-	// Update FPS calculation
-	double current_time = Time::get_singleton()->get_unix_time_from_system();
-	frame_count++;
-	
-	if (fps_update_time == 0.0) {
-		fps_update_time = current_time;
+	// Process MJPEG stream data
+	stream_buffer.append_array(body);
+	process_mjpeg_stream();
+}
+
+void VideoStreamReceiver::process_mjpeg_stream() {
+	if (!found_boundary) {
+		return;
 	}
 	
-	if (current_time - fps_update_time >= 1.0) {
-		current_fps = frame_count / (current_time - fps_update_time);
-		frame_count = 0;
-		fps_update_time = current_time;
+	// Convert buffer to string for boundary searching
+	String buffer_str = stream_buffer.get_string_from_utf8();
+	
+	while (true) {
+		// Find current boundary
+		int boundary_pos = buffer_str.find(boundary_marker);
+		if (boundary_pos == -1) {
+			break; // No complete frame yet
+		}
 		
-		// Update Inspector display
-		notify_property_list_changed();
+		// Find next boundary
+		int next_boundary = buffer_str.find(boundary_marker, boundary_pos + boundary_marker.length());
+		if (next_boundary == -1) {
+			break; // Frame not complete yet
+		}
+		
+		// Extract frame data between boundaries
+		String frame_section = buffer_str.substr(boundary_pos, next_boundary - boundary_pos);
+		
+		// Find end of headers (double CRLF)
+		int header_end = frame_section.find("\r\n\r\n");
+		if (header_end == -1) {
+			header_end = frame_section.find("\n\n"); // Try just LF
+		}
+		
+		if (header_end >= 0) {
+			// Extract JPEG data
+			int jpeg_start = boundary_pos + header_end + 4;
+			int jpeg_length = next_boundary - jpeg_start;
+			
+			if (jpeg_length > 0) {
+				PackedByteArray jpeg_data;
+				jpeg_data.resize(jpeg_length);
+				
+				// Copy JPEG data
+				for (int i = 0; i < jpeg_length && (jpeg_start + i) < stream_buffer.size(); i++) {
+					jpeg_data[i] = stream_buffer[jpeg_start + i];
+				}
+				
+				// Process this frame
+				parse_jpeg_frame(jpeg_data);
+			}
+		}
+		
+		// Remove processed data from buffer
+		PackedByteArray new_buffer;
+		int remaining_start = next_boundary;
+		int remaining_size = stream_buffer.size() - remaining_start;
+		
+		if (remaining_size > 0) {
+			new_buffer.resize(remaining_size);
+			for (int i = 0; i < remaining_size; i++) {
+				new_buffer[i] = stream_buffer[remaining_start + i];
+			}
+		}
+		
+		stream_buffer = new_buffer;
+		buffer_str = stream_buffer.get_string_from_utf8();
 	}
 }
 
@@ -211,6 +262,7 @@ void VideoStreamReceiver::parse_jpeg_frame(const PackedByteArray& jpeg_data) {
 		return;
 	}
 	
+	// Verify JPEG header
 	if (jpeg_data[0] != 0xFF || jpeg_data[1] != 0xD8) {
 		return;
 	}
@@ -231,6 +283,23 @@ void VideoStreamReceiver::parse_jpeg_frame(const PackedByteArray& jpeg_data) {
 	
 	calculate_brightness(image);
 	update_display_texture(image);
+	
+	// Update FPS calculation
+	double current_time = Time::get_singleton()->get_unix_time_from_system();
+	frame_count++;
+	
+	if (fps_update_time == 0.0) {
+		fps_update_time = current_time;
+	}
+	
+	if (current_time - fps_update_time >= 1.0) {
+		current_fps = frame_count / (current_time - fps_update_time);
+		frame_count = 0;
+		fps_update_time = current_time;
+		
+		// Update Inspector display
+		notify_property_list_changed();
+	}
 }
 
 void VideoStreamReceiver::calculate_brightness(const Ref<Image>& image) {
@@ -279,11 +348,6 @@ void VideoStreamReceiver::calculate_brightness(const Ref<Image>& image) {
 	float mean_norm = mean / 255.0f; // 0-1
 	float contrast_norm = std_dev / 128.0f; // Higher std_dev = more contrast
 	float dynamic_range = (p95 - p5) / 255.0f; // How much of the range is used
-	
-	// Ideal exposure has:
-	// - Mean around 0.4-0.6 (not too dark, not too bright)
-	// - Good contrast (std_dev > 30)
-	// - Good dynamic range (using most of 0-255)
 	
 	float exposure_score = 0.0f;
 	

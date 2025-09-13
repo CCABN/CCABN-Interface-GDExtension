@@ -26,7 +26,6 @@ private:
 	String connection_status;
 	float brightness_level;
 	bool is_streaming;
-	bool request_pending;
 	
 	Ref<ImageTexture> current_texture;
 	Ref<Image> fallback_image;
@@ -36,6 +35,10 @@ private:
 	int frame_count;
 	double fps_update_time;
 	
+	PackedByteArray stream_buffer;
+	String boundary_marker;
+	bool found_boundary;
+	
 	void setup_ui();
 	void setup_http_request();
 	void setup_timer();
@@ -43,6 +46,7 @@ private:
 	void stop_stream();
 	void request_frame();
 	void parse_jpeg_frame(const PackedByteArray& jpeg_data);
+	void process_mjpeg_stream();
 	void calculate_brightness(const Ref<Image>& image);
 	void update_display_texture(const Ref<Image>& image);
 	void show_fallback_display();
