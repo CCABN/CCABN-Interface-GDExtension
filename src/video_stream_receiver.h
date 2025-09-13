@@ -3,6 +3,7 @@
 
 #include <godot_cpp/classes/control.hpp>
 #include <godot_cpp/classes/http_request.hpp>
+#include <godot_cpp/classes/stream_peer_tcp.hpp>
 #include <godot_cpp/classes/texture_rect.hpp>
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/image.hpp>

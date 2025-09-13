@@ -83,14 +83,24 @@ void VideoStreamReceiver::setup_http_request() {
 	}
 	
 	http_request = memnew(HTTPRequest);
-	// Set streaming mode for continuous data
-	http_request->set_download_chunk_size(8192); // Smaller chunks for faster processing
+	// Configure for MJPEG streaming
+	http_request->set_download_chunk_size(4096); // Smaller chunks for faster processing
+	http_request->set_body_size_limit(1024 * 1024); // 1MB limit to trigger regular completions
+	http_request->set_max_redirects(0); // No redirects
 	add_child(http_request);
 	http_request->connect("request_completed", Callable(this, "_on_http_request_completed"));
 }
 
 void VideoStreamReceiver::setup_timer() {
-	// No timer needed for MJPEG streaming - data comes continuously
+	if (request_timer) {
+		request_timer->queue_free();
+	}
+	
+	request_timer = memnew(Timer);
+	request_timer->set_wait_time(1.0 / 60.0); // 60 FPS
+	request_timer->set_autostart(false);
+	add_child(request_timer);
+	request_timer->connect("timeout", Callable(this, "_on_request_timer_timeout"));
 }
 
 void VideoStreamReceiver::start_stream() {
@@ -189,6 +199,17 @@ void VideoStreamReceiver::_on_http_request_completed(int result, int response_co
 	// Process MJPEG stream data
 	stream_buffer.append_array(body);
 	process_mjpeg_stream();
+	
+	// Restart request to continue streaming (HTTPRequest completes when body size limit is reached)
+	if (is_streaming) {
+		String url = "http://" + ip_address + ":" + String::num_int64(port);
+		Error err = http_request->request(url);
+		if (err != OK) {
+			update_connection_status("Connection Error");
+			show_fallback_display();
+			stop_stream();
+		}
+	}
 }
 
 void VideoStreamReceiver::process_mjpeg_stream() {
