@@ -26,6 +26,7 @@ void VideoStreamReceiver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_connection_status"), &VideoStreamReceiver::get_connection_status);
 	ClassDB::bind_method(D_METHOD("get_brightness_level"), &VideoStreamReceiver::get_brightness_level);
 	ClassDB::bind_method(D_METHOD("get_video_texture"), &VideoStreamReceiver::get_video_texture);
+	ClassDB::bind_method(D_METHOD("start_stream_manual"), &VideoStreamReceiver::start_stream_manual);
 	
 	ClassDB::bind_method(D_METHOD("_on_http_request_completed", "result", "response_code", "headers", "body"), &VideoStreamReceiver::_on_http_request_completed);
 	ClassDB::bind_method(D_METHOD("_on_request_timer_timeout"), &VideoStreamReceiver::_on_request_timer_timeout);
@@ -41,6 +42,10 @@ void VideoStreamReceiver::_ready() {
 	setup_http_request();
 	setup_timer();
 	show_fallback_display();
+	
+	if (!ip_address.is_empty()) {
+		start_stream();
+	}
 }
 
 void VideoStreamReceiver::_enter_tree() {
@@ -115,7 +120,7 @@ void VideoStreamReceiver::request_frame() {
 		return;
 	}
 	
-	String url = "http://" + ip_address + ":" + String::num(port) + "/snapshot";
+	String url = "http://" + ip_address + ":" + String::num(port);
 	Error err = http_request->request(url);
 	if (err != OK) {
 		update_connection_status("Connection Error");
@@ -255,9 +260,7 @@ void VideoStreamReceiver::update_connection_status(const String& status) {
 void VideoStreamReceiver::set_ip_address(const String& address) {
 	if (ip_address != address) {
 		ip_address = address;
-		if (!address.is_empty()) {
-			start_stream();
-		} else {
+		if (address.is_empty()) {
 			stop_stream();
 			show_fallback_display();
 			update_connection_status("No Address");
@@ -272,9 +275,6 @@ String VideoStreamReceiver::get_ip_address() const {
 void VideoStreamReceiver::set_port(int p_port) {
 	if (port != p_port) {
 		port = p_port;
-		if (!ip_address.is_empty()) {
-			start_stream();
-		}
 	}
 }
 
@@ -292,4 +292,10 @@ float VideoStreamReceiver::get_brightness_level() const {
 
 Ref<ImageTexture> VideoStreamReceiver::get_video_texture() const {
 	return current_texture;
+}
+
+void VideoStreamReceiver::start_stream_manual() {
+	if (!ip_address.is_empty()) {
+		start_stream();
+	}
 }

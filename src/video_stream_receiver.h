@@ -62,6 +62,8 @@ public:
 	
 	Ref<ImageTexture> get_video_texture() const;
 	
+	void start_stream_manual();
+	
 	void _on_http_request_completed(int result, int response_code, const PackedStringArray& headers, const PackedByteArray& body);
 	void _on_request_timer_timeout();
 };
