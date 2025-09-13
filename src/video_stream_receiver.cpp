@@ -120,12 +120,18 @@ void VideoStreamReceiver::request_frame() {
 		return;
 	}
 	
+	if (http_request->get_http_client_status() != HTTPClient::STATUS_DISCONNECTED) {
+		return;
+	}
+	
 	String url = "http://" + ip_address + ":" + String::num_int64(port);
 	Error err = http_request->request(url);
 	if (err != OK) {
-		update_connection_status("Connection Error");
-		show_fallback_display();
-		stop_stream();
+		if (err != ERR_BUSY) {
+			update_connection_status("Connection Error");
+			show_fallback_display();
+			stop_stream();
+		}
 	}
 }
 
