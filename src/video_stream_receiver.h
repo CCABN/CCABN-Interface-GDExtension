@@ -18,9 +18,9 @@ class VideoStreamReceiver : public Control {
 	GDCLASS(VideoStreamReceiver, Control)
 
 private:
-	HTTPRequest* http_request;
+	StreamPeerTCP* tcp_connection;
 	TextureRect* texture_rect;
-	Timer* request_timer;
+	Timer* stream_timer;
 	
 	String ip_address;
 	int port;
@@ -41,11 +41,13 @@ private:
 	bool found_boundary;
 	
 	void setup_ui();
-	void setup_http_request();
+	void setup_tcp_connection();
 	void setup_timer();
 	void start_stream();
 	void stop_stream();
-	void request_frame();
+	void connect_to_server();
+	void send_http_request();
+	void read_stream_data();
 	void parse_jpeg_frame(const PackedByteArray& jpeg_data);
 	void process_mjpeg_stream();
 	void calculate_brightness(const Ref<Image>& image);
@@ -78,8 +80,7 @@ public:
 	
 	void start_stream_manual();
 	
-	void _on_http_request_completed(int result, int response_code, const PackedStringArray& headers, const PackedByteArray& body);
-	void _on_request_timer_timeout();
+	void _on_stream_timer_timeout();
 };
 
 #endif

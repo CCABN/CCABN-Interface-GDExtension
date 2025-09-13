@@ -5,14 +5,14 @@
 
 VideoStreamReceiver::VideoStreamReceiver() {
 	ip_address = "";
-	port = 8080;
+	port = 8082;
 	connection_status = "No Address";
 	brightness_level = 0.0f;
 	is_streaming = false;
 	
-	http_request = nullptr;
+	tcp_connection = nullptr;
 	texture_rect = nullptr;
-	request_timer = nullptr;
+	stream_timer = nullptr;
 	
 	current_fps = 0.0f;
 	last_frame_time = 0.0;
@@ -38,7 +38,7 @@ void VideoStreamReceiver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_video_texture"), &VideoStreamReceiver::get_video_texture);
 	ClassDB::bind_method(D_METHOD("start_stream_manual"), &VideoStreamReceiver::start_stream_manual);
 	
-	ClassDB::bind_method(D_METHOD("_on_http_request_completed", "result", "response_code", "headers", "body"), &VideoStreamReceiver::_on_http_request_completed);
+	ClassDB::bind_method(D_METHOD("_on_stream_timer_timeout"), &VideoStreamReceiver::_on_stream_timer_timeout);
 	
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "ip_address"), "set_ip_address", "get_ip_address");
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "port"), "set_port", "get_port");
@@ -49,7 +49,8 @@ void VideoStreamReceiver::_bind_methods() {
 
 void VideoStreamReceiver::_ready() {
 	setup_ui();
-	setup_http_request();
+	setup_tcp_connection();
+	setup_timer();
 	show_fallback_display();
 	
 	// Only start streaming in runtime, not in editor
@@ -77,30 +78,25 @@ void VideoStreamReceiver::setup_ui() {
 	fallback_image->fill(Color(0.2f, 0.2f, 0.2f));
 }
 
-void VideoStreamReceiver::setup_http_request() {
-	if (http_request) {
-		http_request->queue_free();
+void VideoStreamReceiver::setup_tcp_connection() {
+	if (tcp_connection) {
+		tcp_connection->queue_free();
 	}
 	
-	http_request = memnew(HTTPRequest);
-	// Configure for MJPEG streaming
-	http_request->set_download_chunk_size(4096); // Smaller chunks for faster processing
-	http_request->set_body_size_limit(1024 * 1024); // 1MB limit to trigger regular completions
-	http_request->set_max_redirects(0); // No redirects
-	add_child(http_request);
-	http_request->connect("request_completed", Callable(this, "_on_http_request_completed"));
+	tcp_connection = memnew(StreamPeerTCP);
+	add_child(tcp_connection);
 }
 
 void VideoStreamReceiver::setup_timer() {
-	if (request_timer) {
-		request_timer->queue_free();
+	if (stream_timer) {
+		stream_timer->queue_free();
 	}
 	
-	request_timer = memnew(Timer);
-	request_timer->set_wait_time(1.0 / 60.0); // 60 FPS
-	request_timer->set_autostart(false);
-	add_child(request_timer);
-	request_timer->connect("timeout", Callable(this, "_on_request_timer_timeout"));
+	stream_timer = memnew(Timer);
+	stream_timer->set_wait_time(1.0 / 120.0); // Check for data 120 times per second
+	stream_timer->set_autostart(false);
+	add_child(stream_timer);
+	stream_timer->connect("timeout", Callable(this, "_on_stream_timer_timeout"));
 }
 
 void VideoStreamReceiver::start_stream() {
@@ -122,93 +118,122 @@ void VideoStreamReceiver::start_stream() {
 	stream_buffer.clear();
 	found_boundary = false;
 	
-	// Start MJPEG stream request
-	String url = "http://" + ip_address + ":" + String::num_int64(port);
-	Error err = http_request->request(url);
-	if (err != OK) {
-		update_connection_status("Connection Error");
-		show_fallback_display();
-		stop_stream();
-	}
+	// Start TCP connection
+	connect_to_server();
 }
 
 void VideoStreamReceiver::stop_stream() {
 	if (is_streaming) {
 		is_streaming = false;
-		if (http_request) {
-			http_request->cancel_request();
+		if (tcp_connection && tcp_connection->get_status() == StreamPeerTCP::STATUS_CONNECTED) {
+			tcp_connection->disconnect_from_host();
+		}
+		if (stream_timer) {
+			stream_timer->stop();
 		}
 		update_connection_status("Disconnected");
 	}
 }
 
-void VideoStreamReceiver::request_frame() {
-	// Not used in MJPEG streaming - data comes continuously
+void VideoStreamReceiver::connect_to_server() {
+	if (!tcp_connection) {
+		return;
+	}
+	
+	Error err = tcp_connection->connect_to_host(ip_address, port);
+	if (err != OK) {
+		update_connection_status("Connection Error");
+		show_fallback_display();
+		stop_stream();
+		return;
+	}
+	
+	// Start timer to check connection and read data
+	if (stream_timer) {
+		stream_timer->start();
+	}
 }
 
-void VideoStreamReceiver::_on_request_timer_timeout() {
-	// Not used in MJPEG streaming
+void VideoStreamReceiver::send_http_request() {
+	if (!tcp_connection || tcp_connection->get_status() != StreamPeerTCP::STATUS_CONNECTED) {
+		return;
+	}
+	
+	// Send HTTP GET request for MJPEG stream
+	String request = "GET / HTTP/1.1\r\n";
+	request += "Host: " + ip_address + ":" + String::num_int64(port) + "\r\n";
+	request += "Connection: keep-alive\r\n";
+	request += "Cache-Control: no-cache\r\n";
+	request += "\r\n";
+	
+	PackedByteArray request_data = request.to_utf8_buffer();
+	tcp_connection->put_data(request_data);
+	
+	update_connection_status("Connected");
 }
 
-void VideoStreamReceiver::_on_http_request_completed(int result, int response_code, const PackedStringArray& headers, const PackedByteArray& body) {
+void VideoStreamReceiver::read_stream_data() {
+	if (!tcp_connection || tcp_connection->get_status() != StreamPeerTCP::STATUS_CONNECTED) {
+		return;
+	}
+	
+	int available = tcp_connection->get_available_bytes();
+	if (available > 0) {
+		PackedByteArray data = tcp_connection->get_data(available)[1];
+		stream_buffer.append_array(data);
+		
+		// Parse boundary marker from first response if not found
+		if (!found_boundary) {
+			String buffer_str = stream_buffer.get_string_from_utf8();
+			int content_type_pos = buffer_str.find("Content-Type: multipart/x-mixed-replace");
+			if (content_type_pos >= 0) {
+				int boundary_pos = buffer_str.find("boundary=", content_type_pos);
+				if (boundary_pos >= 0) {
+					int boundary_end = buffer_str.find("\r\n", boundary_pos);
+					if (boundary_end == -1) boundary_end = buffer_str.find("\n", boundary_pos);
+					if (boundary_end >= 0) {
+						boundary_marker = "--" + buffer_str.substr(boundary_pos + 9, boundary_end - boundary_pos - 9);
+						found_boundary = true;
+					}
+				}
+			}
+		}
+		
+		process_mjpeg_stream();
+	}
+}
+
+void VideoStreamReceiver::_on_stream_timer_timeout() {
 	if (!is_streaming) {
 		return;
 	}
 	
-	if (result != HTTPRequest::RESULT_SUCCESS) {
-		update_connection_status("Request Failed");
-		show_fallback_display();
+	if (!tcp_connection) {
 		return;
 	}
 	
-	if (response_code != 200) {
-		update_connection_status("HTTP Error " + String::num(response_code));
-		show_fallback_display();
-		return;
-	}
+	StreamPeerTCP::Status status = tcp_connection->get_status();
 	
-	// Check for MJPEG content type
-	bool is_mjpeg = false;
-	for (int i = 0; i < headers.size(); i++) {
-		String header = headers[i].to_lower();
-		if (header.begins_with("content-type") && header.contains("multipart/x-mixed-replace")) {
-			is_mjpeg = true;
-			// Extract boundary if not found
-			if (!found_boundary) {
-				int boundary_pos = header.find("boundary=");
-				if (boundary_pos >= 0) {
-					boundary_marker = header.substr(boundary_pos + 9);
-					if (!boundary_marker.begins_with("--")) {
-						boundary_marker = "--" + boundary_marker;
-					}
-					found_boundary = true;
-				}
-			}
-			break;
-		}
-	}
-	
-	if (!is_mjpeg) {
-		update_connection_status("Invalid Stream Format");
-		show_fallback_display();
-		return;
-	}
-	
-	update_connection_status("Connected");
-	
-	// Process MJPEG stream data
-	stream_buffer.append_array(body);
-	process_mjpeg_stream();
-	
-	// Restart request to continue streaming (HTTPRequest completes when body size limit is reached)
-	if (is_streaming) {
-		String url = "http://" + ip_address + ":" + String::num_int64(port);
-		Error err = http_request->request(url);
-		if (err != OK) {
+	switch (status) {
+		case StreamPeerTCP::STATUS_NONE:
+		case StreamPeerTCP::STATUS_ERROR:
 			update_connection_status("Connection Error");
 			show_fallback_display();
 			stop_stream();
-		}
+			break;
+			
+		case StreamPeerTCP::STATUS_CONNECTING:
+			update_connection_status("Connecting");
+			break;
+			
+		case StreamPeerTCP::STATUS_CONNECTED:
+			// Send HTTP request if we just connected
+			if (connection_status == "Connecting") {
+				send_http_request();
+			}
+			// Read available data
+			read_stream_data();
+			break;
 	}
 }
 
