@@ -7,6 +7,7 @@
 #include <godot_cpp/classes/image_texture.hpp>
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/timer.hpp>
+#include <godot_cpp/classes/time.hpp>
 #include <godot_cpp/variant/string.hpp>
 
 using namespace godot;
@@ -24,9 +25,15 @@ private:
 	String connection_status;
 	float brightness_level;
 	bool is_streaming;
+	bool request_pending;
 	
 	Ref<ImageTexture> current_texture;
 	Ref<Image> fallback_image;
+	
+	float current_fps;
+	double last_frame_time;
+	int frame_count;
+	double fps_update_time;
 	
 	void setup_ui();
 	void setup_http_request();
@@ -59,6 +66,7 @@ public:
 	
 	String get_connection_status() const;
 	float get_brightness_level() const;
+	float get_current_fps() const;
 	
 	Ref<ImageTexture> get_video_texture() const;
 	

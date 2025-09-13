@@ -8,10 +8,16 @@ VideoStreamReceiver::VideoStreamReceiver() {
 	connection_status = "No Address";
 	brightness_level = 0.0f;
 	is_streaming = false;
+	request_pending = false;
 	
 	http_request = nullptr;
 	texture_rect = nullptr;
 	request_timer = nullptr;
+	
+	current_fps = 0.0f;
+	last_frame_time = 0.0;
+	frame_count = 0;
+	fps_update_time = 0.0;
 }
 
 VideoStreamReceiver::~VideoStreamReceiver() {
@@ -25,6 +31,7 @@ void VideoStreamReceiver::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_port"), &VideoStreamReceiver::get_port);
 	ClassDB::bind_method(D_METHOD("get_connection_status"), &VideoStreamReceiver::get_connection_status);
 	ClassDB::bind_method(D_METHOD("get_brightness_level"), &VideoStreamReceiver::get_brightness_level);
+	ClassDB::bind_method(D_METHOD("get_current_fps"), &VideoStreamReceiver::get_current_fps);
 	ClassDB::bind_method(D_METHOD("get_video_texture"), &VideoStreamReceiver::get_video_texture);
 	ClassDB::bind_method(D_METHOD("start_stream_manual"), &VideoStreamReceiver::start_stream_manual);
 	
@@ -35,6 +42,7 @@ void VideoStreamReceiver::_bind_methods() {
 	ADD_PROPERTY(PropertyInfo(Variant::INT, "port"), "set_port", "get_port");
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "connection_status", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_READ_ONLY), "", "get_connection_status");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "brightness_level", PROPERTY_HINT_RANGE, "-1.0,1.0", PROPERTY_USAGE_READ_ONLY), "", "get_brightness_level");
+	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "current_fps", PROPERTY_HINT_NONE, "", PROPERTY_USAGE_READ_ONLY), "", "get_current_fps");
 }
 
 void VideoStreamReceiver::_ready() {
@@ -98,6 +106,12 @@ void VideoStreamReceiver::start_stream() {
 	stop_stream();
 	update_connection_status("Connecting");
 	is_streaming = true;
+	
+	// Initialize FPS tracking
+	fps_update_time = Time::get_singleton()->get_time_dict_from_system()["unix"].operator double();
+	frame_count = 0;
+	current_fps = 0.0f;
+	
 	request_frame();
 	request_timer->start();
 }
@@ -116,13 +130,15 @@ void VideoStreamReceiver::stop_stream() {
 }
 
 void VideoStreamReceiver::request_frame() {
-	if (!is_streaming || !http_request) {
+	if (!is_streaming || !http_request || request_pending) {
 		return;
 	}
 	
 	String url = "http://" + ip_address + ":" + String::num_int64(port);
 	Error err = http_request->request(url);
-	if (err != OK && err != ERR_BUSY) {
+	if (err == OK) {
+		request_pending = true;
+	} else if (err != ERR_BUSY) {
 		update_connection_status("Connection Error");
 		show_fallback_display();
 		stop_stream();
@@ -134,6 +150,8 @@ void VideoStreamReceiver::_on_request_timer_timeout() {
 }
 
 void VideoStreamReceiver::_on_http_request_completed(int result, int response_code, const PackedStringArray& headers, const PackedByteArray& body) {
+	request_pending = false;
+	
 	if (!is_streaming) {
 		return;
 	}
@@ -167,6 +185,16 @@ void VideoStreamReceiver::_on_http_request_completed(int result, int response_co
 	
 	update_connection_status("Connected");
 	parse_jpeg_frame(body);
+	
+	// Update FPS calculation
+	double current_time = Time::get_singleton()->get_time_dict_from_system()["unix"].operator double();
+	frame_count++;
+	
+	if (current_time - fps_update_time >= 1.0) {
+		current_fps = frame_count / (current_time - fps_update_time);
+		frame_count = 0;
+		fps_update_time = current_time;
+	}
 }
 
 void VideoStreamReceiver::parse_jpeg_frame(const PackedByteArray& jpeg_data) {
@@ -297,6 +325,10 @@ float VideoStreamReceiver::get_brightness_level() const {
 
 Ref<ImageTexture> VideoStreamReceiver::get_video_texture() const {
 	return current_texture;
+}
+
+float VideoStreamReceiver::get_current_fps() const {
+	return current_fps;
 }
 
 void VideoStreamReceiver::start_stream_manual() {
