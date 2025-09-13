@@ -25,6 +25,10 @@ VideoStreamReceiver::VideoStreamReceiver() {
 
 VideoStreamReceiver::~VideoStreamReceiver() {
 	stop_stream();
+	if (tcp_connection) {
+		memdelete(tcp_connection);
+		tcp_connection = nullptr;
+	}
 }
 
 void VideoStreamReceiver::_bind_methods() {
@@ -80,11 +84,10 @@ void VideoStreamReceiver::setup_ui() {
 
 void VideoStreamReceiver::setup_tcp_connection() {
 	if (tcp_connection) {
-		tcp_connection->queue_free();
+		memdelete(tcp_connection);
 	}
 	
 	tcp_connection = memnew(StreamPeerTCP);
-	add_child(tcp_connection);
 }
 
 void VideoStreamReceiver::setup_timer() {
