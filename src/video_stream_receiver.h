@@ -8,6 +8,7 @@
 #include <godot_cpp/classes/image.hpp>
 #include <godot_cpp/classes/timer.hpp>
 #include <godot_cpp/classes/time.hpp>
+#include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/variant/string.hpp>
 
 using namespace godot;

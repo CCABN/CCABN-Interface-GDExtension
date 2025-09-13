@@ -51,7 +51,8 @@ void VideoStreamReceiver::_ready() {
 	setup_timer();
 	show_fallback_display();
 	
-	if (!ip_address.is_empty()) {
+	// Only start streaming in runtime, not in editor
+	if (!Engine::get_singleton()->is_editor_hint() && !ip_address.is_empty()) {
 		start_stream();
 	}
 }
@@ -108,7 +109,7 @@ void VideoStreamReceiver::start_stream() {
 	is_streaming = true;
 	
 	// Initialize FPS tracking
-	fps_update_time = Time::get_singleton()->get_time_dict_from_system()["unix"].operator double();
+	fps_update_time = Time::get_singleton()->get_unix_time_from_system();
 	frame_count = 0;
 	current_fps = 0.0f;
 	
@@ -187,13 +188,20 @@ void VideoStreamReceiver::_on_http_request_completed(int result, int response_co
 	parse_jpeg_frame(body);
 	
 	// Update FPS calculation
-	double current_time = Time::get_singleton()->get_time_dict_from_system()["unix"].operator double();
+	double current_time = Time::get_singleton()->get_unix_time_from_system();
 	frame_count++;
+	
+	if (fps_update_time == 0.0) {
+		fps_update_time = current_time;
+	}
 	
 	if (current_time - fps_update_time >= 1.0) {
 		current_fps = frame_count / (current_time - fps_update_time);
 		frame_count = 0;
 		fps_update_time = current_time;
+		
+		// Update Inspector display
+		notify_property_list_changed();
 	}
 }
 
@@ -332,7 +340,7 @@ float VideoStreamReceiver::get_current_fps() const {
 }
 
 void VideoStreamReceiver::start_stream_manual() {
-	if (!ip_address.is_empty()) {
+	if (!Engine::get_singleton()->is_editor_hint() && !ip_address.is_empty()) {
 		start_stream();
 	}
 }
