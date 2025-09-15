@@ -128,11 +128,19 @@ void VideoStreamReceiver::start_stream() {
 void VideoStreamReceiver::stop_stream() {
 	if (is_streaming) {
 		is_streaming = false;
-		if (tcp_connection && tcp_connection->get_status() == StreamPeerTCP::STATUS_CONNECTED) {
-			tcp_connection->disconnect_from_host();
-		}
 		if (stream_timer) {
 			stream_timer->stop();
+		}
+		// Properly reset TCP connection regardless of status
+		if (tcp_connection) {
+			StreamPeerTCP::Status status = tcp_connection->get_status();
+			UtilityFunctions::print("Stopping stream, TCP status: ", status);
+			if (status == StreamPeerTCP::STATUS_CONNECTED || status == StreamPeerTCP::STATUS_CONNECTING) {
+				tcp_connection->disconnect_from_host();
+			}
+			// Create a new TCP connection to ensure clean state
+			memdelete(tcp_connection);
+			tcp_connection = memnew(StreamPeerTCP);
 		}
 		update_connection_status("Disconnected");
 	}
