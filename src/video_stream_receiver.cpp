@@ -152,18 +152,24 @@ void VideoStreamReceiver::_on_stream_timer_timeout() {
 	
 	switch (status) {
 		case StreamPeerTCP::STATUS_NONE:
+			UtilityFunctions::print("TCP Status: NONE - Connection failed");
+			update_connection_status("Connection Error");
+			stop_stream();
+			break;
 		case StreamPeerTCP::STATUS_ERROR:
-			UtilityFunctions::print("Connection error, status: ", status);
+			UtilityFunctions::print("TCP Status: ERROR - Connection error");
 			update_connection_status("Connection Error");
 			stop_stream();
 			break;
 			
 		case StreamPeerTCP::STATUS_CONNECTING:
-			// Just wait for connection
+			UtilityFunctions::print("TCP Status: CONNECTING - Still connecting...");
+			update_connection_status("Connecting");
 			break;
 			
 		case StreamPeerTCP::STATUS_CONNECTED:
 			if (connection_status == "Connecting") {
+				UtilityFunctions::print("TCP Status: CONNECTED - Connection established!");
 				send_http_request();
 			}
 			read_stream_data();
@@ -192,6 +198,7 @@ void VideoStreamReceiver::read_stream_data() {
 		return;
 	}
 	
+	UtilityFunctions::print("Reading ", available, " bytes of data");
 	Array result = tcp_connection->get_data(available);
 	Error err = static_cast<Error>(result[0].operator int());
 	
@@ -202,12 +209,20 @@ void VideoStreamReceiver::read_stream_data() {
 	
 	PackedByteArray data = result[1];
 	stream_buffer.append_array(data);
+	UtilityFunctions::print("Total buffer size now: ", stream_buffer.size());
+	
+	// Debug: Print first 200 characters of buffer to see what we're getting
+	if (stream_buffer.size() > 0) {
+		String buffer_preview = stream_buffer.get_string_from_utf8().substr(0, 200);
+		UtilityFunctions::print("Buffer preview: ", buffer_preview);
+	}
 	
 	// Try to find boundary in HTTP headers if not found yet
 	if (!found_boundary) {
 		String buffer_str = stream_buffer.get_string_from_utf8();
 		int content_type_pos = buffer_str.find("Content-Type:");
 		if (content_type_pos >= 0) {
+			UtilityFunctions::print("Found Content-Type header");
 			int boundary_pos = buffer_str.find("boundary=", content_type_pos);
 			if (boundary_pos >= 0) {
 				int line_end = buffer_str.find("\r\n", boundary_pos);
@@ -224,6 +239,7 @@ void VideoStreamReceiver::read_stream_data() {
 	
 	// Process MJPEG frames if we have a boundary
 	if (found_boundary) {
+		UtilityFunctions::print("Processing MJPEG stream...");
 		process_mjpeg_stream();
 	}
 }
@@ -283,15 +299,21 @@ void VideoStreamReceiver::process_mjpeg_stream() {
 }
 
 void VideoStreamReceiver::parse_jpeg_frame(const PackedByteArray& jpeg_data) {
+	UtilityFunctions::print("Attempting to parse JPEG frame of size: ", jpeg_data.size());
+	
 	if (jpeg_data.size() < 2 || jpeg_data[0] != 0xFF || jpeg_data[1] != 0xD8) {
+		UtilityFunctions::print("Invalid JPEG header");
 		return;
 	}
 	
 	Ref<Image> image = memnew(Image);
 	Error err = image->load_jpg_from_buffer(jpeg_data);
 	if (err != OK) {
+		UtilityFunctions::print("Failed to load JPEG: ", err);
 		return;
 	}
+	
+	UtilityFunctions::print("Successfully loaded image: ", image->get_width(), "x", image->get_height());
 	
 	// Resize to expected dimensions
 	if (image->get_width() != 240 || image->get_height() != 240) {
@@ -313,6 +335,7 @@ void VideoStreamReceiver::parse_jpeg_frame(const PackedByteArray& jpeg_data) {
 		frame_count = 0;
 		fps_update_time = current_time;
 		notify_property_list_changed();
+		UtilityFunctions::print("FPS: ", current_fps);
 	}
 }
 
