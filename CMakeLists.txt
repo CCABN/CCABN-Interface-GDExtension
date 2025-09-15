@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ccabn_videostream)
+project(ccabn_interface)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,7 +11,6 @@ add_subdirectory(extern/godot-cpp)
 set(SOURCES
     src/register_types.cpp
     src/simple_logger.cpp
-    src/video_stream_receiver.cpp
 )
 
 # Create the shared library
