@@ -41,11 +41,9 @@ private:
 	bool found_boundary;
 	
 	void setup_ui();
-	void setup_tcp_connection();
 	void setup_timer();
 	void start_stream();
 	void stop_stream();
-	void connect_to_server();
 	void send_http_request();
 	void read_stream_data();
 	void parse_jpeg_frame(const PackedByteArray& jpeg_data);

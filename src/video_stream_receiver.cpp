@@ -53,7 +53,6 @@ void VideoStreamReceiver::_bind_methods() {
 
 void VideoStreamReceiver::_ready() {
 	setup_ui();
-	setup_tcp_connection();
 	setup_timer();
 	show_fallback_display();
 	
@@ -82,21 +81,13 @@ void VideoStreamReceiver::setup_ui() {
 	fallback_image->fill(Color(0.2f, 0.2f, 0.2f));
 }
 
-void VideoStreamReceiver::setup_tcp_connection() {
-	if (tcp_connection) {
-		memdelete(tcp_connection);
-	}
-	
-	tcp_connection = memnew(StreamPeerTCP);
-}
-
 void VideoStreamReceiver::setup_timer() {
 	if (stream_timer) {
 		stream_timer->queue_free();
 	}
 	
 	stream_timer = memnew(Timer);
-	stream_timer->set_wait_time(1.0 / 120.0); // Check for data 120 times per second
+	stream_timer->set_wait_time(1.0 / 60.0); // 60 FPS polling
 	stream_timer->set_autostart(false);
 	add_child(stream_timer);
 	stream_timer->connect("timeout", Callable(this, "_on_stream_timer_timeout"));
@@ -109,8 +100,9 @@ void VideoStreamReceiver::start_stream() {
 	}
 	
 	stop_stream();
-	update_connection_status("Connecting");
-	is_streaming = true;
+	
+	// Create fresh TCP connection
+	tcp_connection = memnew(StreamPeerTCP);
 	
 	// Initialize FPS tracking
 	fps_update_time = Time::get_singleton()->get_unix_time_from_system();
@@ -121,64 +113,71 @@ void VideoStreamReceiver::start_stream() {
 	stream_buffer.clear();
 	found_boundary = false;
 	
-	// Start TCP connection
-	connect_to_server();
-}
-
-void VideoStreamReceiver::stop_stream() {
-	if (is_streaming) {
-		is_streaming = false;
-		if (stream_timer) {
-			stream_timer->stop();
-		}
-		// Properly reset TCP connection regardless of status
-		if (tcp_connection) {
-			StreamPeerTCP::Status status = tcp_connection->get_status();
-			UtilityFunctions::print("Stopping stream, TCP status: ", status);
-			if (status == StreamPeerTCP::STATUS_CONNECTED || status == StreamPeerTCP::STATUS_CONNECTING) {
-				tcp_connection->disconnect_from_host();
-			}
-			// Create a new TCP connection to ensure clean state
-			memdelete(tcp_connection);
-			tcp_connection = memnew(StreamPeerTCP);
-		}
-		update_connection_status("Disconnected");
-	}
-}
-
-void VideoStreamReceiver::connect_to_server() {
-	if (!tcp_connection) {
-		UtilityFunctions::print("TCP connection is null!");
-		return;
-	}
-	
-	UtilityFunctions::print("Attempting to connect to ", ip_address, ":", port);
+	// Attempt connection
+	update_connection_status("Connecting");
 	Error err = tcp_connection->connect_to_host(ip_address, port);
 	if (err != OK) {
-		UtilityFunctions::print("Connect error: ", err);
-		update_connection_status("Connection Error");
-		show_fallback_display();
+		UtilityFunctions::print("Failed to initiate connection: ", err);
+		update_connection_status("Connection Failed");
 		stop_stream();
 		return;
 	}
 	
-	UtilityFunctions::print("Connection initiated successfully");
-	// Start timer to check connection and read data
+	is_streaming = true;
+	stream_timer->start();
+	UtilityFunctions::print("Starting stream to ", ip_address, ":", port);
+}
+
+void VideoStreamReceiver::stop_stream() {
 	if (stream_timer) {
-		stream_timer->start();
+		stream_timer->stop();
+	}
+	
+	if (tcp_connection) {
+		tcp_connection->disconnect_from_host();
+		memdelete(tcp_connection);
+		tcp_connection = nullptr;
+	}
+	
+	is_streaming = false;
+	update_connection_status("Disconnected");
+}
+
+void VideoStreamReceiver::_on_stream_timer_timeout() {
+	if (!is_streaming || !tcp_connection) {
+		return;
+	}
+	
+	StreamPeerTCP::Status status = tcp_connection->get_status();
+	
+	switch (status) {
+		case StreamPeerTCP::STATUS_NONE:
+		case StreamPeerTCP::STATUS_ERROR:
+			UtilityFunctions::print("Connection error, status: ", status);
+			update_connection_status("Connection Error");
+			stop_stream();
+			break;
+			
+		case StreamPeerTCP::STATUS_CONNECTING:
+			// Just wait for connection
+			break;
+			
+		case StreamPeerTCP::STATUS_CONNECTED:
+			if (connection_status == "Connecting") {
+				send_http_request();
+			}
+			read_stream_data();
+			break;
 	}
 }
 
 void VideoStreamReceiver::send_http_request() {
-	if (!tcp_connection || tcp_connection->get_status() != StreamPeerTCP::STATUS_CONNECTED) {
-		return;
-	}
+	UtilityFunctions::print("Connected! Sending HTTP request");
 	
-	// Send HTTP GET request for MJPEG stream
 	String request = "GET / HTTP/1.1\r\n";
 	request += "Host: " + ip_address + ":" + String::num_int64(port) + "\r\n";
 	request += "Connection: keep-alive\r\n";
-	request += "Cache-Control: no-cache\r\n";
+	request += "User-Agent: Godot/VideoStreamReceiver\r\n";
 	request += "\r\n";
 	
 	PackedByteArray request_data = request.to_utf8_buffer();
@@ -188,152 +187,103 @@ void VideoStreamReceiver::send_http_request() {
 }
 
 void VideoStreamReceiver::read_stream_data() {
-	if (!tcp_connection || tcp_connection->get_status() != StreamPeerTCP::STATUS_CONNECTED) {
+	int available = tcp_connection->get_available_bytes();
+	if (available <= 0) {
 		return;
 	}
 	
-	int available = tcp_connection->get_available_bytes();
-	if (available > 0) {
-		PackedByteArray data = tcp_connection->get_data(available)[1];
-		stream_buffer.append_array(data);
-		
-		// Parse boundary marker from first response if not found
-		if (!found_boundary) {
-			String buffer_str = stream_buffer.get_string_from_utf8();
-			int content_type_pos = buffer_str.find("Content-Type: multipart/x-mixed-replace");
-			if (content_type_pos >= 0) {
-				int boundary_pos = buffer_str.find("boundary=", content_type_pos);
-				if (boundary_pos >= 0) {
-					int boundary_end = buffer_str.find("\r\n", boundary_pos);
-					if (boundary_end == -1) boundary_end = buffer_str.find("\n", boundary_pos);
-					if (boundary_end >= 0) {
-						boundary_marker = "--" + buffer_str.substr(boundary_pos + 9, boundary_end - boundary_pos - 9);
-						found_boundary = true;
-					}
+	Array result = tcp_connection->get_data(available);
+	Error err = static_cast<Error>(result[0].operator int());
+	
+	if (err != OK) {
+		UtilityFunctions::print("Error reading data: ", err);
+		return;
+	}
+	
+	PackedByteArray data = result[1];
+	stream_buffer.append_array(data);
+	
+	// Try to find boundary in HTTP headers if not found yet
+	if (!found_boundary) {
+		String buffer_str = stream_buffer.get_string_from_utf8();
+		int content_type_pos = buffer_str.find("Content-Type:");
+		if (content_type_pos >= 0) {
+			int boundary_pos = buffer_str.find("boundary=", content_type_pos);
+			if (boundary_pos >= 0) {
+				int line_end = buffer_str.find("\r\n", boundary_pos);
+				if (line_end == -1) line_end = buffer_str.find("\n", boundary_pos);
+				if (line_end >= 0) {
+					String boundary_value = buffer_str.substr(boundary_pos + 9, line_end - boundary_pos - 9);
+					boundary_marker = "--" + boundary_value.strip_edges();
+					found_boundary = true;
+					UtilityFunctions::print("Found boundary: ", boundary_marker);
 				}
 			}
 		}
-		
+	}
+	
+	// Process MJPEG frames if we have a boundary
+	if (found_boundary) {
 		process_mjpeg_stream();
 	}
 }
 
-void VideoStreamReceiver::_on_stream_timer_timeout() {
-	if (!is_streaming) {
-		return;
-	}
-	
-	if (!tcp_connection) {
-		return;
-	}
-	
-	StreamPeerTCP::Status status = tcp_connection->get_status();
-	
-	switch (status) {
-		case StreamPeerTCP::STATUS_NONE:
-			UtilityFunctions::print("TCP Status: NONE");
-			update_connection_status("Connection Error");
-			show_fallback_display();
-			stop_stream();
-			break;
-		case StreamPeerTCP::STATUS_ERROR:
-			UtilityFunctions::print("TCP Status: ERROR");
-			update_connection_status("Connection Error");
-			show_fallback_display();
-			stop_stream();
-			break;
-			
-		case StreamPeerTCP::STATUS_CONNECTING:
-			UtilityFunctions::print("TCP Status: CONNECTING");
-			update_connection_status("Connecting");
-			break;
-			
-		case StreamPeerTCP::STATUS_CONNECTED:
-			UtilityFunctions::print("TCP Status: CONNECTED");
-			// Send HTTP request if we just connected
-			if (connection_status == "Connecting") {
-				UtilityFunctions::print("Sending HTTP request...");
-				send_http_request();
-			}
-			// Read available data
-			read_stream_data();
-			break;
-	}
-}
-
 void VideoStreamReceiver::process_mjpeg_stream() {
-	if (!found_boundary) {
-		return;
-	}
-	
-	// Convert buffer to string for boundary searching
+	// Convert to string for easier boundary searching
 	String buffer_str = stream_buffer.get_string_from_utf8();
 	
 	while (true) {
-		// Find current boundary
-		int boundary_pos = buffer_str.find(boundary_marker);
-		if (boundary_pos == -1) {
-			break; // No complete frame yet
-		}
+		int boundary_start = buffer_str.find(boundary_marker);
+		if (boundary_start == -1) break;
 		
-		// Find next boundary
-		int next_boundary = buffer_str.find(boundary_marker, boundary_pos + boundary_marker.length());
-		if (next_boundary == -1) {
-			break; // Frame not complete yet
-		}
+		int next_boundary = buffer_str.find(boundary_marker, boundary_start + boundary_marker.length());
+		if (next_boundary == -1) break;
 		
-		// Extract frame data between boundaries
-		String frame_section = buffer_str.substr(boundary_pos, next_boundary - boundary_pos);
-		
-		// Find end of headers (double CRLF)
+		// Find end of headers in this frame section
+		String frame_section = buffer_str.substr(boundary_start, next_boundary - boundary_start);
 		int header_end = frame_section.find("\r\n\r\n");
 		if (header_end == -1) {
-			header_end = frame_section.find("\n\n"); // Try just LF
+			header_end = frame_section.find("\n\n");
 		}
 		
 		if (header_end >= 0) {
-			// Extract JPEG data
-			int jpeg_start = boundary_pos + header_end + 4;
+			int jpeg_start_offset = header_end + 4; // After header end marker
+			if (header_end == frame_section.find("\n\n")) {
+				jpeg_start_offset = header_end + 2; // For \n\n instead of \r\n\r\n
+			}
+			
+			int jpeg_start = boundary_start + jpeg_start_offset;
 			int jpeg_length = next_boundary - jpeg_start;
 			
-			if (jpeg_length > 0) {
+			if (jpeg_length > 0 && jpeg_start >= 0 && (jpeg_start + jpeg_length) <= stream_buffer.size()) {
 				PackedByteArray jpeg_data;
 				jpeg_data.resize(jpeg_length);
-				
-				// Copy JPEG data
-				for (int i = 0; i < jpeg_length && (jpeg_start + i) < stream_buffer.size(); i++) {
+				for (int i = 0; i < jpeg_length; i++) {
 					jpeg_data[i] = stream_buffer[jpeg_start + i];
 				}
-				
-				// Process this frame
 				parse_jpeg_frame(jpeg_data);
 			}
 		}
 		
 		// Remove processed data from buffer
-		PackedByteArray new_buffer;
-		int remaining_start = next_boundary;
-		int remaining_size = stream_buffer.size() - remaining_start;
-		
+		int remaining_size = stream_buffer.size() - next_boundary;
 		if (remaining_size > 0) {
+			PackedByteArray new_buffer;
 			new_buffer.resize(remaining_size);
 			for (int i = 0; i < remaining_size; i++) {
-				new_buffer[i] = stream_buffer[remaining_start + i];
+				new_buffer[i] = stream_buffer[next_boundary + i];
 			}
+			stream_buffer = new_buffer;
+			buffer_str = stream_buffer.get_string_from_utf8();
+		} else {
+			stream_buffer.clear();
+			break;
 		}
-		
-		stream_buffer = new_buffer;
-		buffer_str = stream_buffer.get_string_from_utf8();
 	}
 }
 
 void VideoStreamReceiver::parse_jpeg_frame(const PackedByteArray& jpeg_data) {
-	if (jpeg_data.size() < 2) {
-		return;
-	}
-	
-	// Verify JPEG header
-	if (jpeg_data[0] != 0xFF || jpeg_data[1] != 0xD8) {
+	if (jpeg_data.size() < 2 || jpeg_data[0] != 0xFF || jpeg_data[1] != 0xD8) {
 		return;
 	}
 	
@@ -343,6 +293,7 @@ void VideoStreamReceiver::parse_jpeg_frame(const PackedByteArray& jpeg_data) {
 		return;
 	}
 	
+	// Resize to expected dimensions
 	if (image->get_width() != 240 || image->get_height() != 240) {
 		image->resize(240, 240, Image::INTERPOLATE_NEAREST);
 	}
@@ -354,20 +305,13 @@ void VideoStreamReceiver::parse_jpeg_frame(const PackedByteArray& jpeg_data) {
 	calculate_brightness(image);
 	update_display_texture(image);
 	
-	// Update FPS calculation
-	double current_time = Time::get_singleton()->get_unix_time_from_system();
+	// Update FPS
 	frame_count++;
-	
-	if (fps_update_time == 0.0) {
-		fps_update_time = current_time;
-	}
-	
+	double current_time = Time::get_singleton()->get_unix_time_from_system();
 	if (current_time - fps_update_time >= 1.0) {
 		current_fps = frame_count / (current_time - fps_update_time);
 		frame_count = 0;
 		fps_update_time = current_time;
-		
-		// Update Inspector display
 		notify_property_list_changed();
 	}
 }
@@ -381,82 +325,25 @@ void VideoStreamReceiver::calculate_brightness(const Ref<Image>& image) {
 	PackedByteArray data = image->get_data();
 	int pixel_count = image->get_width() * image->get_height();
 	
-	// Calculate histogram and advanced statistics
-	int histogram[256] = {0};
 	long long total_brightness = 0;
-	
-	// Build histogram and calculate mean
 	for (int i = 0; i < data.size(); i += 3) {
 		int gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
-		histogram[gray]++;
 		total_brightness += gray;
 	}
 	
 	float mean = (float)total_brightness / (float)pixel_count;
+	float mean_norm = mean / 255.0f;
 	
-	// Calculate standard deviation for contrast measure
-	float variance = 0.0f;
-	for (int i = 0; i < data.size(); i += 3) {
-		int gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
-		float diff = gray - mean;
-		variance += diff * diff;
-	}
-	float std_dev = sqrt(variance / pixel_count);
-	
-	// Find percentiles for dynamic range analysis
-	int cumulative = 0;
-	int p5 = 0, p95 = 0, p50 = 0; // 5th, 95th, and 50th percentiles
-	
-	for (int i = 0; i < 256; i++) {
-		cumulative += histogram[i];
-		if (p5 == 0 && cumulative >= pixel_count * 0.05f) p5 = i;
-		if (p50 == 0 && cumulative >= pixel_count * 0.50f) p50 = i;
-		if (p95 == 0 && cumulative >= pixel_count * 0.95f) p95 = i;
-	}
-	
-	// Advanced brightness assessment combining multiple factors
-	float mean_norm = mean / 255.0f; // 0-1
-	float contrast_norm = std_dev / 128.0f; // Higher std_dev = more contrast
-	float dynamic_range = (p95 - p5) / 255.0f; // How much of the range is used
-	
-	float exposure_score = 0.0f;
-	
-	// Evaluate exposure based on mean
-	if (mean_norm < 0.15f) {
-		// Very underexposed
-		exposure_score = -1.0f + (mean_norm / 0.15f) * 0.5f; // -1.0 to -0.5
-	} else if (mean_norm < 0.35f) {
-		// Slightly underexposed
-		exposure_score = -0.5f + ((mean_norm - 0.15f) / 0.20f) * 0.5f; // -0.5 to 0.0
-	} else if (mean_norm < 0.65f) {
-		// Well exposed - factor in contrast and dynamic range
-		float base_score = ((mean_norm - 0.35f) / 0.30f) * 0.4f - 0.2f; // -0.2 to 0.2
-		
-		// Boost score for good contrast
-		if (contrast_norm > 0.25f) base_score += 0.1f;
-		if (dynamic_range > 0.6f) base_score += 0.1f;
-		
-		exposure_score = base_score;
-	} else if (mean_norm < 0.85f) {
-		// Slightly overexposed
-		exposure_score = 0.0f + ((mean_norm - 0.65f) / 0.20f) * 0.5f; // 0.0 to 0.5
+	// Simple brightness assessment: -1 (dark) to +1 (bright)
+	if (mean_norm < 0.3f) {
+		brightness_level = -1.0f + (mean_norm / 0.3f);
+	} else if (mean_norm > 0.7f) {
+		brightness_level = (mean_norm - 0.7f) / 0.3f;
 	} else {
-		// Very overexposed
-		exposure_score = 0.5f + ((mean_norm - 0.85f) / 0.15f) * 0.5f; // 0.5 to 1.0
+		brightness_level = 0.0f;
 	}
 	
-	// Penalize low contrast (flat/washed out images)
-	if (contrast_norm < 0.15f) {
-		if (exposure_score > 0) exposure_score += 0.3f; // Push toward overexposed
-		else exposure_score -= 0.3f; // Push toward underexposed
-	}
-	
-	// Penalize poor dynamic range
-	if (dynamic_range < 0.3f) {
-		exposure_score *= 1.3f; // Amplify the problem
-	}
-	
-	brightness_level = CLAMP(exposure_score, -1.0f, 1.0f);
+	brightness_level = CLAMP(brightness_level, -1.0f, 1.0f);
 }
 
 void VideoStreamReceiver::update_display_texture(const Ref<Image>& image) {
