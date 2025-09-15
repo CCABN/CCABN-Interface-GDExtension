@@ -4,9 +4,9 @@
 #include <cmath>
 
 VideoStreamReceiver::VideoStreamReceiver() {
-	ip_address = "";
+	ip_address = "localhost";
 	port = 8082;
-	connection_status = "No Address";
+	connection_status = "Ready";
 	brightness_level = 0.0f;
 	is_streaming = false;
 	
@@ -140,17 +140,21 @@ void VideoStreamReceiver::stop_stream() {
 
 void VideoStreamReceiver::connect_to_server() {
 	if (!tcp_connection) {
+		UtilityFunctions::print("TCP connection is null!");
 		return;
 	}
 	
+	UtilityFunctions::print("Attempting to connect to ", ip_address, ":", port);
 	Error err = tcp_connection->connect_to_host(ip_address, port);
 	if (err != OK) {
+		UtilityFunctions::print("Connect error: ", err);
 		update_connection_status("Connection Error");
 		show_fallback_display();
 		stop_stream();
 		return;
 	}
 	
+	UtilityFunctions::print("Connection initiated successfully");
 	// Start timer to check connection and read data
 	if (stream_timer) {
 		stream_timer->start();
@@ -219,19 +223,28 @@ void VideoStreamReceiver::_on_stream_timer_timeout() {
 	
 	switch (status) {
 		case StreamPeerTCP::STATUS_NONE:
+			UtilityFunctions::print("TCP Status: NONE");
+			update_connection_status("Connection Error");
+			show_fallback_display();
+			stop_stream();
+			break;
 		case StreamPeerTCP::STATUS_ERROR:
+			UtilityFunctions::print("TCP Status: ERROR");
 			update_connection_status("Connection Error");
 			show_fallback_display();
 			stop_stream();
 			break;
 			
 		case StreamPeerTCP::STATUS_CONNECTING:
+			UtilityFunctions::print("TCP Status: CONNECTING");
 			update_connection_status("Connecting");
 			break;
 			
 		case StreamPeerTCP::STATUS_CONNECTED:
+			UtilityFunctions::print("TCP Status: CONNECTED");
 			// Send HTTP request if we just connected
 			if (connection_status == "Connecting") {
+				UtilityFunctions::print("Sending HTTP request...");
 				send_http_request();
 			}
 			// Read available data
