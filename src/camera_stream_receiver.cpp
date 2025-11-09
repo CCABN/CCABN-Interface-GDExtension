@@ -163,8 +163,15 @@ void CameraStreamReceiver::_poll_websocket() {
             }
 
             // Process all available packets
+            int packet_count = ws_peer->get_available_packet_count();
+            if (packet_count > 0) {
+                UtilityFunctions::print("[CameraStreamReceiver] Processing ", packet_count, " packets");
+            }
+
             while (ws_peer->get_available_packet_count() > 0) {
                 PackedByteArray packet = ws_peer->get_packet();
+                UtilityFunctions::print("[CameraStreamReceiver] Received packet: size=", packet.size(),
+                                       ", is_string=", ws_peer->was_string_packet());
                 if (packet.size() > 0) {
                     _handle_packet(packet);
                 }
