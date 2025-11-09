@@ -42,7 +42,7 @@ private:
     Ref<Image> current_image;
 
     // Connection settings
-    bool auto_connect = true;
+    bool auto_connect = false;
     float reconnect_delay = 1.0f;
     float max_reconnect_delay = 10.0f;
     float current_reconnect_delay = 1.0f;
