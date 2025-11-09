@@ -5,5 +5,5 @@ compatibility_minimum = "4.1"
 
 [libraries]
 
-linux.debug.x86_64 = "res://bin/libccabn_interface.so"
-linux.release.x86_64 = "res://bin/libccabn_interface.so"
+linux.debug.x86_64 = "res://addons/ccabn_interface/bin/libccabn_interface.so"
+linux.release.x86_64 = "res://addons/ccabn_interface/bin/libccabn_interface.so"
