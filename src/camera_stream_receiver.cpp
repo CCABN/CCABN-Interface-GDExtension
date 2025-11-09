@@ -154,7 +154,7 @@ void CameraStreamReceiver::_poll_websocket() {
     }
 
     switch (state) {
-        case WebSocketPeer::STATE_OPEN:
+        case WebSocketPeer::STATE_OPEN: {
             if (connection_state != CONNECTION_STATE_CONNECTED) {
                 connection_state = CONNECTION_STATE_CONNECTED;
                 current_reconnect_delay = reconnect_delay;  // Reset reconnect delay
@@ -184,6 +184,7 @@ void CameraStreamReceiver::_poll_websocket() {
                 emit_signal("connection_error", "Connection timeout");
             }
             break;
+        }
 
         case WebSocketPeer::STATE_CONNECTING:
             // Still connecting, wait...
