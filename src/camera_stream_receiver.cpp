@@ -135,6 +135,12 @@ void CameraStreamReceiver::_poll_websocket() {
 
     WebSocketPeer::State state = ws_peer->get_ready_state();
 
+    static int poll_counter = 0;
+    if (poll_counter++ % 100 == 0) {
+        UtilityFunctions::print("[CameraStreamReceiver] _poll_websocket called, state=", (int)state,
+                               ", available_packets=", ws_peer->get_available_packet_count());
+    }
+
     switch (state) {
         case WebSocketPeer::STATE_OPEN:
             if (connection_state != CONNECTION_STATE_CONNECTED) {
