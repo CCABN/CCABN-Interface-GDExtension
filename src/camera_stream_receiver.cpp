@@ -36,11 +36,11 @@ void CameraStreamReceiver::_bind_methods() {
     ADD_SIGNAL(MethodInfo("disconnected"));
     ADD_SIGNAL(MethodInfo("connection_error", PropertyInfo(Variant::STRING, "message")));
 
-    // Enum for connection state
-    BIND_ENUM_CONSTANT(DISCONNECTED);
-    BIND_ENUM_CONSTANT(CONNECTING);
-    BIND_ENUM_CONSTANT(CONNECTED);
-    BIND_ENUM_CONSTANT(ERROR_STATE);
+    // Expose connection state constants as integers
+    BIND_CONSTANT(CONNECTION_STATE_DISCONNECTED);
+    BIND_CONSTANT(CONNECTION_STATE_CONNECTING);
+    BIND_CONSTANT(CONNECTION_STATE_CONNECTED);
+    BIND_CONSTANT(CONNECTION_STATE_ERROR);
 }
 
 CameraStreamReceiver::CameraStreamReceiver() {
@@ -66,16 +66,16 @@ void CameraStreamReceiver::_process(double delta) {
     _update_fps_counter(delta);
 
     switch (connection_state) {
-        case DISCONNECTED:
+        case CONNECTION_STATE_DISCONNECTED:
             _handle_reconnection(delta);
             break;
 
-        case CONNECTING:
-        case CONNECTED:
+        case CONNECTION_STATE_CONNECTING:
+        case CONNECTION_STATE_CONNECTED:
             _poll_websocket();
             break;
 
-        case ERROR_STATE:
+        case CONNECTION_STATE_ERROR:
             _handle_reconnection(delta);
             break;
     }
@@ -86,28 +86,28 @@ void CameraStreamReceiver::connect_to_server() {
 }
 
 void CameraStreamReceiver::connect_to_server_url(const String& url) {
-    if (connection_state == CONNECTED || connection_state == CONNECTING) {
+    if (connection_state == CONNECTION_STATE_CONNECTED || connection_state == CONNECTION_STATE_CONNECTING) {
         UtilityFunctions::print("[CameraStreamReceiver] Already connected or connecting");
         return;
     }
 
     server_url = url;
-    connection_state = CONNECTING;
+    connection_state = CONNECTION_STATE_CONNECTING;
 
     UtilityFunctions::print("[CameraStreamReceiver] Connecting to ", server_url);
 
     Error err = ws_peer->connect_to_url(server_url);
     if (err != OK) {
         UtilityFunctions::printerr("[CameraStreamReceiver] Failed to initiate connection: ", err);
-        connection_state = ERROR_STATE;
+        connection_state = CONNECTION_STATE_ERROR;
         emit_signal("connection_error", "Failed to initiate connection");
     }
 }
 
 void CameraStreamReceiver::disconnect_from_server() {
-    if (connection_state != DISCONNECTED) {
+    if (connection_state != CONNECTION_STATE_DISCONNECTED) {
         ws_peer->close();
-        connection_state = DISCONNECTED;
+        connection_state = CONNECTION_STATE_DISCONNECTED;
         UtilityFunctions::print("[CameraStreamReceiver] Disconnected");
         emit_signal("disconnected");
     }
@@ -120,8 +120,8 @@ void CameraStreamReceiver::_poll_websocket() {
 
     switch (state) {
         case WebSocketPeer::STATE_OPEN:
-            if (connection_state != CONNECTED) {
-                connection_state = CONNECTED;
+            if (connection_state != CONNECTION_STATE_CONNECTED) {
+                connection_state = CONNECTION_STATE_CONNECTED;
                 current_reconnect_delay = reconnect_delay;  // Reset reconnect delay
                 UtilityFunctions::print("[CameraStreamReceiver] Connected!");
                 emit_signal("connected");
@@ -138,7 +138,7 @@ void CameraStreamReceiver::_poll_websocket() {
             // Check for timeout (no frames for 3 seconds)
             if (last_frame_time > 0.0f && (Time::get_singleton()->get_ticks_msec() / 1000.0f - last_frame_time) > connection_timeout) {
                 UtilityFunctions::print("[CameraStreamReceiver] Connection timeout - no frames received");
-                connection_state = ERROR_STATE;
+                connection_state = CONNECTION_STATE_ERROR;
                 emit_signal("connection_error", "Connection timeout");
             }
             break;
@@ -149,9 +149,9 @@ void CameraStreamReceiver::_poll_websocket() {
 
         case WebSocketPeer::STATE_CLOSING:
         case WebSocketPeer::STATE_CLOSED:
-            if (connection_state != DISCONNECTED) {
+            if (connection_state != CONNECTION_STATE_DISCONNECTED) {
                 UtilityFunctions::print("[CameraStreamReceiver] Connection closed");
-                connection_state = ERROR_STATE;
+                connection_state = CONNECTION_STATE_ERROR;
                 emit_signal("disconnected");
             }
             break;
@@ -207,7 +207,7 @@ void CameraStreamReceiver::_handle_reconnection(double delta) {
 }
 
 void CameraStreamReceiver::_send_led_command(float brightness) {
-    if (connection_state != CONNECTED) {
+    if (connection_state != CONNECTION_STATE_CONNECTED) {
         UtilityFunctions::print("[CameraStreamReceiver] Not connected, cannot send LED command");
         return;
     }
@@ -256,16 +256,16 @@ bool CameraStreamReceiver::get_auto_connect() const {
     return auto_connect;
 }
 
-CameraStreamReceiver::ConnectionState CameraStreamReceiver::get_connection_state() const {
-    return connection_state;
+int CameraStreamReceiver::get_connection_state() const {
+    return static_cast<int>(connection_state);
 }
 
 String CameraStreamReceiver::get_connection_state_string() const {
     switch (connection_state) {
-        case DISCONNECTED: return "DISCONNECTED";
-        case CONNECTING: return "CONNECTING";
-        case CONNECTED: return "CONNECTED";
-        case ERROR_STATE: return "ERROR";
+        case CONNECTION_STATE_DISCONNECTED: return "DISCONNECTED";
+        case CONNECTION_STATE_CONNECTING: return "CONNECTING";
+        case CONNECTION_STATE_CONNECTED: return "CONNECTED";
+        case CONNECTION_STATE_ERROR: return "ERROR";
         default: return "UNKNOWN";
     }
 }

@@ -24,18 +24,18 @@ class CameraStreamReceiver : public Node {
     GDCLASS(CameraStreamReceiver, Node)
 
 public:
-    enum ConnectionState {
-        DISCONNECTED,
-        CONNECTING,
-        CONNECTED,
-        ERROR_STATE
+    enum ConnectionState : int {
+        CONNECTION_STATE_DISCONNECTED = 0,
+        CONNECTION_STATE_CONNECTING = 1,
+        CONNECTION_STATE_CONNECTED = 2,
+        CONNECTION_STATE_ERROR = 3
     };
 
 private:
     // WebSocket connection
     Ref<WebSocketPeer> ws_peer;
     String server_url = "ws://ccabn-tracker.local/stream";
-    ConnectionState connection_state = DISCONNECTED;
+    ConnectionState connection_state = CONNECTION_STATE_DISCONNECTED;
 
     // Texture management
     Ref<ImageTexture> texture;
@@ -82,7 +82,7 @@ public:
     void set_auto_connect(bool enabled);
     bool get_auto_connect() const;
 
-    ConnectionState get_connection_state() const;
+    int get_connection_state() const;
     String get_connection_state_string() const;
 
     float get_fps() const;
