@@ -223,10 +223,33 @@ void CameraStreamReceiver::_handle_packet(const PackedByteArray& packet) {
                                    String::num_int64(packet[packet.size()-1], 16));
         }
 
+        // Try to save first frame for debugging
+        static bool saved_debug_frame = false;
+        if (!saved_debug_frame) {
+            Ref<FileAccess> file = FileAccess::open("/tmp/debug_frame.jpg", FileAccess::WRITE);
+            if (file.is_valid()) {
+                file->store_buffer(packet.ptr(), packet.size());
+                file->close();
+                UtilityFunctions::print("[CameraStreamReceiver] Saved debug frame to /tmp/debug_frame.jpg");
+                saved_debug_frame = true;
+            }
+        }
+
         Error err = current_image->load_jpg_from_buffer(packet);
 
         if (err != OK) {
             UtilityFunctions::printerr("[CameraStreamReceiver] Failed to decode JPEG: ", err);
+
+            // Try alternative: load from file
+            if (!saved_debug_frame) {
+                UtilityFunctions::print("[CameraStreamReceiver] Trying to load from saved file...");
+                err = current_image->load("/tmp/debug_frame.jpg");
+                if (err == OK) {
+                    UtilityFunctions::print("[CameraStreamReceiver] Successfully loaded from file!");
+                } else {
+                    UtilityFunctions::printerr("[CameraStreamReceiver] File load also failed: ", err);
+                }
+            }
             return;
         }
 
