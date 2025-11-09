@@ -212,6 +212,17 @@ void CameraStreamReceiver::_handle_packet(const PackedByteArray& packet) {
         UtilityFunctions::print("[CameraStreamReceiver] Received text: ", response);
     } else {
         // Binary packet - should be JPEG frame
+        // Debug: Check first few bytes
+        if (packet.size() >= 10) {
+            UtilityFunctions::print("[CameraStreamReceiver] JPEG header bytes: ",
+                                   String::num_int64(packet[0], 16), " ",
+                                   String::num_int64(packet[1], 16), " ",
+                                   String::num_int64(packet[2], 16), " ",
+                                   String::num_int64(packet[3], 16), " ... ",
+                                   String::num_int64(packet[packet.size()-2], 16), " ",
+                                   String::num_int64(packet[packet.size()-1], 16));
+        }
+
         Error err = current_image->load_jpg_from_buffer(packet);
 
         if (err != OK) {
