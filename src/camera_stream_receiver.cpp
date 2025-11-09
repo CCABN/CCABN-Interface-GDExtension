@@ -47,7 +47,7 @@ CameraStreamReceiver::CameraStreamReceiver() {
     ws_peer.instantiate();
     texture.instantiate();
     current_image.instantiate();
-    UtilityFunctions::print("[CameraStreamReceiver] Constructor - server_url = '", server_url, "'");
+    UtilityFunctions::print("[CameraStreamReceiver:", (uint64_t)this, "] Constructor - server_url = '", server_url, "'");
 }
 
 CameraStreamReceiver::~CameraStreamReceiver() {
@@ -55,10 +55,10 @@ CameraStreamReceiver::~CameraStreamReceiver() {
 }
 
 void CameraStreamReceiver::_ready() {
-    UtilityFunctions::print("[CameraStreamReceiver] _ready() - server_url = '", server_url, "', auto_connect = ", auto_connect);
+    UtilityFunctions::print("[CameraStreamReceiver:", (uint64_t)this, "] _ready() - server_url = '", server_url, "', auto_connect = ", auto_connect);
 
     if (auto_connect) {
-        UtilityFunctions::print("[CameraStreamReceiver] Auto-connecting to '", server_url, "'");
+        UtilityFunctions::print("[CameraStreamReceiver:", (uint64_t)this, "] Auto-connecting to '", server_url, "'");
         connect_to_server();
     }
 }
@@ -83,6 +83,7 @@ void CameraStreamReceiver::_process(double delta) {
 }
 
 void CameraStreamReceiver::connect_to_server() {
+    UtilityFunctions::print("[CameraStreamReceiver:", (uint64_t)this, "] connect_to_server() called - server_url = '", server_url, "'");
     connect_to_server_url(server_url);
 }
 
@@ -254,7 +255,7 @@ void CameraStreamReceiver::_update_fps_counter(double delta) {
 // Getters/Setters
 
 void CameraStreamReceiver::set_server_url(const String& url) {
-    UtilityFunctions::print("[CameraStreamReceiver] set_server_url - OLD: '", server_url, "' -> NEW: '", url, "'");
+    UtilityFunctions::print("[CameraStreamReceiver:", (uint64_t)this, "] set_server_url - OLD: '", server_url, "' -> NEW: '", url, "'");
     server_url = url;
 }
 
