@@ -45,6 +45,12 @@ void CameraStreamReceiver::_bind_methods() {
 
 CameraStreamReceiver::CameraStreamReceiver() {
     ws_peer.instantiate();
+
+    // Configure WebSocket for larger binary messages (JPEG frames)
+    ws_peer->set_inbound_buffer_size(65536);   // 64KB inbound buffer
+    ws_peer->set_outbound_buffer_size(16384);  // 16KB outbound buffer
+    ws_peer->set_max_queued_packets(32);       // Allow more queued packets
+
     texture.instantiate();
     current_image.instantiate();
     UtilityFunctions::print("[CameraStreamReceiver:", (uint64_t)this, "] Constructor - server_url = '", server_url, "'");
@@ -135,10 +141,16 @@ void CameraStreamReceiver::_poll_websocket() {
 
     WebSocketPeer::State state = ws_peer->get_ready_state();
 
+    int available = ws_peer->get_available_packet_count();
     static int poll_counter = 0;
-    if (poll_counter++ % 100 == 0) {
-        UtilityFunctions::print("[CameraStreamReceiver] _poll_websocket called, state=", (int)state,
-                               ", available_packets=", ws_peer->get_available_packet_count());
+    static int last_available = 0;
+
+    // Log when packet count changes or periodically
+    if (available != last_available || poll_counter++ % 100 == 0) {
+        UtilityFunctions::print("[CameraStreamReceiver] _poll_websocket: state=", (int)state,
+                               ", available_packets=", available,
+                               ", ready_state=", ws_peer->get_ready_state());
+        last_available = available;
     }
 
     switch (state) {
