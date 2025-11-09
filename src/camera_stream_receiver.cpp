@@ -91,7 +91,19 @@ void CameraStreamReceiver::connect_to_server_url(const String& url) {
         return;
     }
 
-    server_url = url;
+    // Only update server_url if url is not empty and is different
+    if (!url.is_empty()) {
+        server_url = url;
+    }
+
+    // Double-check we have a valid URL before attempting connection
+    if (server_url.is_empty()) {
+        UtilityFunctions::printerr("[CameraStreamReceiver] Cannot connect: server_url is empty");
+        connection_state = CONNECTION_STATE_ERROR;
+        emit_signal("connection_error", "Server URL is empty");
+        return;
+    }
+
     connection_state = CONNECTION_STATE_CONNECTING;
 
     UtilityFunctions::print("[CameraStreamReceiver] Connecting to ", server_url);
