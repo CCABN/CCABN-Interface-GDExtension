@@ -88,22 +88,20 @@ void CameraStreamReceiver::connect_to_server() {
 }
 
 void CameraStreamReceiver::connect_to_server_url(const String& url) {
-    UtilityFunctions::print("[CameraStreamReceiver:", (uint64_t)this, "] connect_to_server_url() - url parameter = '", url, "', server_url member = '", server_url, "'");
-
     if (connection_state == CONNECTION_STATE_CONNECTED || connection_state == CONNECTION_STATE_CONNECTING) {
         UtilityFunctions::print("[CameraStreamReceiver] Already connected or connecting");
         return;
     }
 
-    // Only update server_url if url is not empty and is different
-    if (!url.is_empty()) {
-        UtilityFunctions::print("[CameraStreamReceiver:", (uint64_t)this, "] Updating server_url from '", server_url, "' to '", url, "'");
-        server_url = url;
-        UtilityFunctions::print("[CameraStreamReceiver:", (uint64_t)this, "] After assignment, server_url = '", server_url, "'");
+    // Make a copy to avoid self-assignment issues when called with server_url as parameter
+    String url_to_use = url;
+
+    // Only update server_url if url is not empty
+    if (!url_to_use.is_empty()) {
+        server_url = url_to_use;
     }
 
     // Double-check we have a valid URL before attempting connection
-    UtilityFunctions::print("[CameraStreamReceiver:", (uint64_t)this, "] Final check - server_url = '", server_url, "'");
     if (server_url.is_empty()) {
         UtilityFunctions::printerr("[CameraStreamReceiver] Cannot connect: server_url is empty");
         connection_state = CONNECTION_STATE_ERROR;
