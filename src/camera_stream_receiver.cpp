@@ -211,47 +211,41 @@ void CameraStreamReceiver::_handle_packet(const PackedByteArray& packet) {
         String response = String::utf8((const char*)packet.ptr(), packet.size());
         UtilityFunctions::print("[CameraStreamReceiver] Received text: ", response);
     } else {
-        // Binary packet - should be JPEG frame
-        // Debug: Check first few bytes
-        if (packet.size() >= 10) {
-            UtilityFunctions::print("[CameraStreamReceiver] JPEG header bytes: ",
-                                   String::num_int64(packet[0], 16), " ",
-                                   String::num_int64(packet[1], 16), " ",
-                                   String::num_int64(packet[2], 16), " ",
-                                   String::num_int64(packet[3], 16), " ... ",
-                                   String::num_int64(packet[packet.size()-2], 16), " ",
-                                   String::num_int64(packet[packet.size()-1], 16));
-        }
+        // Binary packet - raw RGB565 frame data
+        // RGB565 is 160x120 = 19200 pixels * 2 bytes = 38400 bytes
+        const int WIDTH = 160;
+        const int HEIGHT = 120;
+        const int EXPECTED_SIZE = WIDTH * HEIGHT * 2;
 
-        // Try to save first frame for debugging
-        static bool saved_debug_frame = false;
-        if (!saved_debug_frame) {
-            Ref<FileAccess> file = FileAccess::open("/tmp/debug_frame.jpg", FileAccess::WRITE);
-            if (file.is_valid()) {
-                file->store_buffer(packet.ptr(), packet.size());
-                file->close();
-                UtilityFunctions::print("[CameraStreamReceiver] Saved debug frame to /tmp/debug_frame.jpg");
-                saved_debug_frame = true;
-            }
-        }
-
-        Error err = current_image->load_jpg_from_buffer(packet);
-
-        if (err != OK) {
-            UtilityFunctions::printerr("[CameraStreamReceiver] Failed to decode JPEG: ", err);
-
-            // Try alternative: load from file
-            if (!saved_debug_frame) {
-                UtilityFunctions::print("[CameraStreamReceiver] Trying to load from saved file...");
-                err = current_image->load("/tmp/debug_frame.jpg");
-                if (err == OK) {
-                    UtilityFunctions::print("[CameraStreamReceiver] Successfully loaded from file!");
-                } else {
-                    UtilityFunctions::printerr("[CameraStreamReceiver] File load also failed: ", err);
-                }
-            }
+        if (packet.size() != EXPECTED_SIZE) {
+            UtilityFunctions::printerr("[CameraStreamReceiver] Unexpected frame size: ", packet.size(),
+                                      " (expected ", EXPECTED_SIZE, ")");
             return;
         }
+
+        // Create RGB8 image from RGB565 data
+        current_image->set_data(WIDTH, HEIGHT, false, Image::FORMAT_RGB8, PackedByteArray());
+
+        // Convert RGB565 to RGB8
+        PackedByteArray rgb8_data;
+        rgb8_data.resize(WIDTH * HEIGHT * 3);
+
+        for (int i = 0; i < WIDTH * HEIGHT; i++) {
+            uint16_t rgb565 = (packet[i * 2 + 1] << 8) | packet[i * 2];
+
+            // Extract RGB components from RGB565
+            uint8_t r = ((rgb565 >> 11) & 0x1F) << 3;  // 5 bits -> 8 bits
+            uint8_t g = ((rgb565 >> 5) & 0x3F) << 2;   // 6 bits -> 8 bits
+            uint8_t b = (rgb565 & 0x1F) << 3;          // 5 bits -> 8 bits
+
+            rgb8_data[i * 3 + 0] = r;
+            rgb8_data[i * 3 + 1] = g;
+            rgb8_data[i * 3 + 2] = b;
+        }
+
+        current_image->set_data(WIDTH, HEIGHT, false, Image::FORMAT_RGB8, rgb8_data);
+
+        UtilityFunctions::print("[CameraStreamReceiver] Converted RGB565 frame to RGB8");
 
         // Update texture with new image
         texture->update(current_image);
